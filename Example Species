@@ -1,0 +1,66 @@
+from qgis.core import QgsProject, QgsLayoutExporter, QgsMapLayer, QgsRasterLayer
+from PyQt5.QtCore import QEventLoop, QTimer
+
+# --------------------------------------------
+# CONFIGURATION
+# --------------------------------------------
+SPECIES_PREFIX = 'EXAMPLE SPECIES'         # Prefix used in raster layer names
+LAYOUT_NAME = 'EXAMPLE SPECIES'            # Name of the print layout
+TITLE_ELEMENT_ID = 'Title'                 # ID of the label item in the layout
+LOCATION_NAME = 'EXAMPLE LOCATION'         # Location to include in the map title
+EXPORT_DIR = 'L:/GIS/Exports/Species'      # Output folder for exported images
+# --------------------------------------------
+
+# Function to update layout title text
+def update_title(layout, year):
+    composer_title = layout.itemById(TITLE_ELEMENT_ID)
+    if composer_title:
+        composer_title.setText(f"Distribution of {SPECIES_PREFIX} in the {LOCATION_NAME}, {year}")
+    else:
+        print(f"Title item with ID '{TITLE_ELEMENT_ID}' not found.")
+
+# Load the layout
+layout = QgsProject.instance().layoutManager().layoutByName(LAYOUT_NAME)
+if layout is None:
+    print(f"Layout '{LAYOUT_NAME}' not found.")
+    exit()
+
+# Collect all raster layers that match the prefix and contain a year
+layers = QgsProject.instance().mapLayers().values()
+raster_layers = {}
+
+for layer in layers:
+    if isinstance(layer, QgsRasterLayer) and layer.name().startswith(SPECIES_PREFIX):
+        try:
+            year = int(layer.name().split()[-1])
+            raster_layers[year] = layer
+        except ValueError:
+            print(f"Skipping layer with invalid year: {layer.name()}")
+
+# Sort layers by year and export each one
+for year in sorted(raster_layers.keys()):
+    # Hide all layers first
+    for lyr in raster_layers.values():
+        QgsProject.instance().layerTreeRoot().findLayer(lyr.id()).setItemVisibilityChecked(False)
+
+    # Make only the current year's raster layer visible
+    current_layer = raster_layers[year]
+    QgsProject.instance().layerTreeRoot().findLayer(current_layer.id()).setItemVisibilityChecked(True)
+
+    # Update the layout title
+    update_title(layout, year)
+
+    # Allow layout time to refresh
+    loop = QEventLoop()
+    QTimer.singleShot(500, loop.quit)
+    loop.exec_()
+
+    # Export the map
+    image_path = f"{EXPORT_DIR}/{SPECIES_PREFIX.replace(' ', '_')}_Heat_Map_{year}.jpeg"
+    exporter = QgsLayoutExporter(layout)
+    result = exporter.exportToImage(image_path, QgsLayoutExporter.ImageExportSettings())
+
+    if result == 0:
+        print(f"✅ Exported image for year {year}: {image_path}")
+    else:
+        print(f"❌ Export failed for year {year}")
